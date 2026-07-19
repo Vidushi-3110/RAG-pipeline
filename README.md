@@ -1,62 +1,73 @@
 # RAG Pipeline: PDF Question Answering System
 
-A Retrieval-Augmented Generation (RAG) pipeline that answers natural language questions using the content of your own PDF documents — instead of relying on an LLM's pretrained knowledge, it retrieves relevant context from your files and generates grounded answers from that context.
+A Retrieval-Augmented Generation (RAG) pipeline built from scratch that lets you ask
+questions about the content of your own PDF documents and get grounded, context-aware
+answers from an LLM.
 
-## How it works
+## How It Works
 
 ```
-PDF documents → chunking → embeddings → vector store (ChromaDB) → semantic retrieval → LLM-generated answer
+PDFs → Documents → Chunks → Embeddings → Vector Store (ChromaDB) → Retrieval → LLM Answer
 ```
 
-1. **Ingestion** — PDFs are loaded and split into overlapping text chunks using `RecursiveCharacterTextSplitter`, so retrieval stays precise without losing context across boundaries.
-2. **Embedding** — Each chunk is converted into a dense vector using `SentenceTransformers` (`all-MiniLM-L6-v2`), capturing its semantic meaning.
-3. **Vector Store** — Embeddings are persisted in a **ChromaDB** collection for fast similarity search.
-4. **Retrieval** — A user query is embedded the same way, and the top-k most similar chunks are retrieved via cosine similarity.
-5. **Generation** — Retrieved chunks are passed as context into a prompt, and an LLM (via **Groq**) generates a final, grounded answer with cited sources.
+1. **Load** — every PDF in `data/pdfs/` is parsed page-by-page into LangChain `Document` objects.
+2. **Split** — pages are broken into smaller, overlapping text chunks so each embedding stays focused on one idea.
+3. **Embed** — each chunk is converted into a numeric vector using a `sentence-transformers` model (`all-MiniLM-L6-v2`).
+4. **Store** — chunks and their embeddings are saved in a persistent **ChromaDB** collection.
+5. **Retrieve** — a user's question is embedded the same way, and ChromaDB returns the most semantically similar chunks.
+6. **Generate** — the retrieved chunks are injected into a prompt as context, and an LLM (via **Groq**) generates the final answer.
 
 ## Tech Stack
 
-| Component | Tool |
-|---|---|
-| Orchestration | LangChain |
-| PDF Loading | PyPDFLoader |
-| Chunking | RecursiveCharacterTextSplitter |
-| Embeddings | SentenceTransformers (`all-MiniLM-L6-v2`) |
-| Vector Database | ChromaDB |
-| LLM Inference | Groq (`llama-3.1-8b-instant`) |
+| Component        | Library                     |
+|-------------------|------------------------------|
+| PDF loading        | `langchain-community` (PyPDFLoader) |
+| Text splitting      | `langchain-text-splitters`        |
+| Embeddings          | `sentence-transformers`           |
+| Vector database     | `chromadb`                        |
+| LLM inference        | `langchain-groq`                  |
 
 ## Project Structure
 
 ```
-RAG_pipeline.ipynb   # Full pipeline: ingestion, embedding, vector store, retrieval, generation
-data/pdfs/            # Source PDF documents (add your own)
-data/vector_store/    # Persisted ChromaDB collection (auto-generated)
+├── RAG_pipeline_scratch.ipynb   # main notebook — run top to bottom
+├── data/
+│   ├── pdfs/                    # put your source PDFs here
+│   └── vector_store/            # ChromaDB persists embeddings here (auto-created)
+└── README.md
 ```
 
-## Running it
+## Setup & Usage
 
-1. Open the notebook in Google Colab (or locally with Jupyter).
-2. Install dependencies (first cell handles this).
-3. Add your PDF files to `data/pdfs/`.
-4. Get a free API key from [Groq Console](https://console.groq.com/keys).
-5. Run all cells top to bottom — you'll be prompted to enter your Groq key securely at runtime (it is never stored in the notebook).
-6. Ask a question at the bottom cell and get a context-grounded answer with source references.
+1. **Open the notebook** in Google Colab or Jupyter.
+2. **Install dependencies** — the first code cell runs:
+   ```bash
+   pip install langchain langchain-core langchain-community langchain-groq pypdf pymupdf sentence-transformers chromadb -q
+   ```
+3. **Add your PDF(s)** into `data/pdfs/` (create the folder first if needed — the notebook does this automatically). Make sure the PDF sits directly inside `data/pdfs/`, not in `data/`.
+4. **Get a free Groq API key** from [console.groq.com/keys](https://console.groq.com/keys) — needed for the answer-generation step. Copy the key somewhere safe when it's created, since Groq only shows it once.
+5. **Run all cells top to bottom** (Runtime → Run all in Colab). When prompted, paste your Groq API key.
+6. Ask a question by calling:
+   ```python
+   result = rag_pipeline.answer("your question here")
+   print(result["answer"])
+   ```
 
-## Example
+## Key Classes
 
-**Query:** `"What is encoder decoder"`
+- **`EmbeddingManager`** — loads the sentence-transformer model and turns text into embedding vectors.
+- **`VectorStoreManager`** — wraps a persistent ChromaDB collection for storing and querying embeddings.
+- **`RAGRetriever`** — embeds a query and retrieves the top-k most relevant chunks from the vector store.
+- **`RAGPipeline`** — combines retrieval with LLM generation to produce a final, context-grounded answer.
 
-The pipeline retrieves the most relevant chunks from the ingested PDFs and generates a natural-language answer, along with the source documents used to construct it.
+## Troubleshooting
 
-## Key Design Choices
+- **`ModuleNotFoundError`** — the install cell didn't finish running, or the kernel needs a restart after installing new packages. Re-run the `pip install` cell, then restart the runtime/kernel and run all cells again in order.
+- **`PDFs loaded: 0`** — your PDF isn't inside `data/pdfs/`. Check the file path in the Colab/Jupyter file browser; the PDF must be directly inside the `pdfs` subfolder.
+- **Empty embeddings / `ValueError` in ChromaDB's `add()`** — this means no PDF pages were loaded. Re-run `load_all_pdfs()` and `split_into_chunks()` after fixing the PDF location, before re-running the ingestion cell.
+- **Stuck on "Enter your Groq API key"** — this isn't an error; paste your key into the box and press Enter. Typing stays hidden for security.
 
-- **Chunk size (500) with overlap (50):** balances retrieval precision against context loss at chunk boundaries.
-- **Cosine similarity:** standard choice for comparing text embeddings, robust to differences in text length.
-- **Groq for inference:** fast, free-tier LLM API — easily swappable for OpenAI, Gemini, or a local model.
+## Notes
 
-## Possible Extensions
-
-- Add re-ranking of retrieved chunks before generation
-- Support multi-turn conversational queries with chat history
-- Add evaluation metrics (retrieval precision@k, answer faithfulness)
-- Swap ChromaDB for FAISS/Pinecone for larger-scale deployments
+- This project was built for learning purposes to understand each stage of a RAG pipeline hands-on.
+- Swap in OpenAI, Gemini, or a local model in place of Groq by replacing the `ChatGroq` call inside `RAGPipeline`.
